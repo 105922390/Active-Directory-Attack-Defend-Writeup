@@ -78,7 +78,7 @@ bnguyen  --MemberOf-->  HelpDeskAdmins  --MemberOf-->  Domain Admins
 
 A standard user account, nested through a single group membership, straight into Domain Admins. This is the kind of thing that can find its way into real environments for example someone adds the helpdesk group to a privileged group "just for now" and nobody ever takes it back out and it's basically invisible unless you're looking at the graph rather than a flat permissions list.
 
-**What Wazuh caught:** Nothing here either. LDAP enumeration like this is mostly passive, so it didn't trip anything. I'm counting this as finding #2 monitoring for BloodHound's characteristic LDAP (protocol used to query Active Directory's directy of users/groups/computers) query volume/pattern is a well known SIEM rule to add, and I just hadn't built it yet.
+**What Wazuh caught:** Nothing here either. LDAP enumeration like this is mostly passive, so it didn't trip anything. I'm counting this as finding #2 - monitoring for BloodHound's characteristic LDAP (protocol used to query Active Directory's directory of users/groups/computers) query volume/pattern is a well known SIEM rule to add, and I just hadn't built it yet.
 
 ## 3. AS-REP Roasting
 
@@ -92,7 +92,7 @@ I used impacket-GetNPUsers to find and request AS-REP material for the vulnerabl
 
 ![AS-REP roasting hash cracked with Hashcat (password redacted)](screenshots/as-rep-cracked.png)
 
-**What Wazuh caught:** This was the most interesting result of the whole project. I could see the attack clearly at the source Event ID 4768 on DC01 showed the request plainly, account name and all but it never showed up in the Wazuh dashboard. I lost way too much time tracing this down before realizing the raw log was being ingested fine there just wasn't a rule mapped to correlate a pre-auth-disabled AS-REP request into something alertable. The data was there, the rule just wasn't. Whoops.
+**What Wazuh caught:** This was the most interesting result of the whole project. I could see the attack clearly at the source - Event ID 4768 on DC01 showed the request plainly, account name and all but it never showed up in the Wazuh dashboard. I lost way too much time tracing this down before realizing the raw log was being ingested fine there just wasn't a rule mapped to correlate a pre-auth-disabled AS-REP request into something alertable. The data was there, the rule just wasn't. Whoops.
 
 ## 4. Kerberoasting
 
@@ -123,7 +123,7 @@ Small note: the alert initially looked like it happened 8 hours before I actuall
 
 With the cracked svc_sql credentials (and the escalated access that came with them), I ran impacket-secretsdump directly against DC01. That pulled:
 
-- Local SAM (local database on windows machine that stores account password hashes) hashes (Administrator, Guest, DefaultAccount)
+- Local SAM hashes (local database on windows machine that stores account password hashes) (Administrator, Guest, DefaultAccount)
 - Cached domain logon information
 - LSA (local security authority. Handles logins and stores secrets in memory/registry) secrets, including the machine account secret and DPAPI (windows built in encryption system) system keys
 - The krbtgt account hash, the single most sensitive credential in the entire domain, since it signs every Kerberos ticket issued. Having this is what lets an attacker forge a Golden Ticket: a TGT for any account, including Domain Admin, with no further authentication, valid until the krbtgt password gets rotated (twice).
@@ -138,11 +138,11 @@ At this point it's full domain compromise. Everything needed to persist indefini
 
 ![Both Wazuh agents (DC01, CLIENT01) connected and active throughout testing](screenshots/wazuh-agents-connected.png)
 
-LLMNR/NBT-NS Poisoning: Not caught by Wazuh
-BloodHound Enumeration: Not caught by Wazuh
-AS-REP Roasting: Not caught by Wazuh
-Kerberoasting: Caught by Wazuh
-secretsdump: Not caught by Wazuh
+- LLMNR/NBT-NS Poisoning: Not caught by Wazuh
+- BloodHound Enumeration: Not caught by Wazuh
+- AS-REP Roasting: Not caught by Wazuh
+- Kerberoasting: Caught by Wazuh
+- secretsdump: Not caught by Wazuh
 
 4 out of 5 stages went undetected. Kerberoasting was the only one that actually got flagged.
 
