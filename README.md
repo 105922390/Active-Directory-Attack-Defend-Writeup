@@ -62,9 +62,9 @@ I cracked the captured hash offline with Hashcat and got valid domain credential
 
 **MITRE ATT&CK:** [T1087.002 — Account Discovery: Domain Account](https://attack.mitre.org/techniques/T1087/002/), [T1069.002 — Permission Groups Discovery: Domain Groups](https://attack.mitre.org/techniques/T1069/002/)
 
-With bnguyen's credentials in hand, I ran bloodhound-python against the DC to pull the full AD object graph over LDAP users, groups, memberships, ACLs, sessions, trusts, all of it.
+With bnguyen's credentials in hand, I ran bloodhound-python against the domain controller to map out the whole domain, every user, group, who's a member of what, who has permissions over what, and how it all connects.
 
-I also ran impacket-lookupsid separately to brute-force the domain's RID space and independently confirm the SIDs for key objects (Administrator, krbtgt, Domain Admins, the service accounts) before going any further.
+I also ran impacket-lookupsid separately to brute-force the domain's internal ID numbers to confirm the exact identity of key accounts (Administrator, krbtgt, Domain Admins, the service accounts) before going any further.
 
 Once the graph was loaded into BloodHound CE, I queried it for the shortest path from my compromised account to Domain Admins, and ended up with this:
 
@@ -78,7 +78,7 @@ bnguyen  --MemberOf-->  HelpDeskAdmins  --MemberOf-->  Domain Admins
 
 A standard user account, nested through a single group membership, straight into Domain Admins. This is the kind of thing that can find its way into real environments for example someone adds the helpdesk group to a privileged group "just for now" and nobody ever takes it back out and it's basically invisible unless you're looking at the graph rather than a flat permissions list.
 
-**What Wazuh caught:** Nothing here either. LDAP enumeration like this is mostly passive, so it didn't trip anything. I'm counting this as finding #2 monitoring for BloodHound's characteristic LDAP query volume/pattern is a well known SIEM rule to add, and I just hadn't built it yet.
+**What Wazuh caught:** Nothing here either. LDAP enumeration like this is mostly passive, so it didn't trip anything. I'm counting this as finding #2 monitoring for BloodHound's characteristic LDAP (protocol used to query Active Directory's directy of users/groups/computers) query volume/pattern is a well known SIEM rule to add, and I just hadn't built it yet.
 
 ## 3. AS-REP Roasting
 
@@ -86,7 +86,7 @@ A standard user account, nested through a single group membership, straight into
 
 AS-REP roasting goes after accounts that have Kerberos pre-authentication disabled. For those accounts, I can request an AS-REP for the user without supplying any password at all, and what comes back is encrypted with that user's password hash which I can then try to crack offline.
 
-I used impacket-GetNPUsers to find and request AS-REP material for the vulnerable account (svc_backup), and confirmed it independently by pulling the matching Kerberos TGT request (Event ID 4768) straight from DC01's Security log. I cracked the resulting hash offline with Hashcat.
+I used impacket-GetNPUsers to find and request AS-REP material for the vulnerable account (svc_backup), and confirmed it independently by pulling the matching Kerberos TGT (ticket granting ticket) request (Event ID 4768) straight from DC01's Security log. I cracked the resulting hash offline with Hashcat.
 
 ![Event ID 4768 on DC01 confirming the AS-REP TGT request for svc_backup](screenshots/as-rep-event-log.png)
 
@@ -98,7 +98,7 @@ I used impacket-GetNPUsers to find and request AS-REP material for the vulnerabl
 
 **MITRE ATT&CK:** [T1558.003 — Steal or Forge Kerberos Tickets: Kerberoasting](https://attack.mitre.org/techniques/T1558/003/)
 
-Any authenticated domain user can request a Kerberos service ticket for any registered SPN, and that ticket comes back encrypted with the service account's own password hash. Service accounts tend to have weak, rarely rotated passwords since no one logs into them interactively which makes this attack quiet and high value.
+Any authenticated domain user can request a Kerberos service ticket for any registered SPN (service principal name. A label that tells Kerberos "this account runs this service"), and that ticket comes back encrypted with the service account's own password hash. Service accounts tend to have weak, rarely rotated passwords since no one logs into them interactively which makes this attack quiet and high value.
 
 I ran impacket-GetUserSPNs with bnguyen's credentials to enumerate SPNs and request tickets for each one. One result jumped out immediately:
 
@@ -123,9 +123,9 @@ Small note: the alert initially looked like it happened 8 hours before I actuall
 
 With the cracked svc_sql credentials (and the escalated access that came with them), I ran impacket-secretsdump directly against DC01. That pulled:
 
-- Local SAM hashes (Administrator, Guest, DefaultAccount)
+- Local SAM (local database on windows machine that stores account password hashes) hashes (Administrator, Guest, DefaultAccount)
 - Cached domain logon information
-- LSA secrets, including the machine account secret and DPAPI system keys
+- LSA (local security authority. Handles logins and stores secrets in memory/registry) secrets, including the machine account secret and DPAPI (windows built in encryption system) system keys
 - The krbtgt account hash, the single most sensitive credential in the entire domain, since it signs every Kerberos ticket issued. Having this is what lets an attacker forge a Golden Ticket: a TGT for any account, including Domain Admin, with no further authentication, valid until the krbtgt password gets rotated (twice).
 
 At this point it's full domain compromise. Everything needed to persist indefinitely and move anywhere in the domain is sitting in that dump.
@@ -138,6 +138,13 @@ At this point it's full domain compromise. Everything needed to persist indefini
 
 ![Both Wazuh agents (DC01, CLIENT01) connected and active throughout testing](screenshots/wazuh-agents-connected.png)
 
+LLMNR/NBT-NS Poisoning: Not caught by Wazuh
+BloodHound Enumeration: Not caught by Wazuh
+AS-REP Roasting: Not caught by Wazuh
+Kerberoasting: Caught by Wazuh
+secretsdump: Not caught by Wazuh
+
+4 out of 5 stages went undetected. Kerberoasting was the only one that actually got flagged.
 
 ## What I'd fix next
 
