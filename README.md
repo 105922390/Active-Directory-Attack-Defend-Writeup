@@ -55,7 +55,7 @@ I cracked the captured hash offline with Hashcat and got valid domain credential
 
 ![LLMNR/NBT-NS poisoning capturing an NTLMv2 hash via Responder](screenshots/llmnr-poisoning.png)
 
-**What Wazuh caught:** Nothing. However I cam to find its a pretty common thing as catching LLMNR poisoning generally needs either network level IDS watching for broadcast protocol abuse or a purpose built correlation rule, and neither was part of my baseline setup. I flagged this as finding #1 below rather than quietly leaving it out.
+**What Wazuh caught:** Nothing. However I came to find its a pretty common thing as catching LLMNR poisoning generally needs either network level IDS watching for broadcast protocol abuse or a purpose built correlation rule, and neither was part of my baseline setup. I flagged this as finding #1 below rather than quietly leaving it out.
 
 
 ## 2. Enumeration with BloodHound
@@ -78,7 +78,7 @@ bnguyen  --MemberOf-->  HelpDeskAdmins  --MemberOf-->  Domain Admins
 
 A standard user account, nested through a single group membership, straight into Domain Admins. This is the kind of thing that can find its way into real environments for example someone adds the helpdesk group to a privileged group "just for now" and nobody ever takes it back out and it's basically invisible unless you're looking at the graph rather than a flat permissions list.
 
-**What Wazuh caught:** Nothing here either. LDAP enumeration like this is mostly passive, so it didn't trip anything. I'm counting this as finding #2 — monitoring for BloodHound's characteristic LDAP query volume/pattern is a well known SIEM rule to add, and I just hadn't built it yet.
+**What Wazuh caught:** Nothing here either. LDAP enumeration like this is mostly passive, so it didn't trip anything. I'm counting this as finding #2 monitoring for BloodHound's characteristic LDAP query volume/pattern is a well known SIEM rule to add, and I just hadn't built it yet.
 
 ## 3. AS-REP Roasting
 
@@ -92,7 +92,7 @@ I used impacket-GetNPUsers to find and request AS-REP material for the vulnerabl
 
 ![AS-REP roasting hash cracked with Hashcat (password redacted)](screenshots/as-rep-cracked.png)
 
-**What Wazuh caught:** This was the most interesting result of the whole project. I could see the attack clearly at the source — Event ID 4768 on DC01 showed the request plainly, account name and all but it never showed up in the Wazuh dashboard. I lost way too much time tracing this down before realizing the raw log was being ingested fine; there just wasn't a rule mapped to correlate a pre-auth-disabled AS-REP request into something alertable. The data was there, the rule just wasn't. Whoops.
+**What Wazuh caught:** This was the most interesting result of the whole project. I could see the attack clearly at the source Event ID 4768 on DC01 showed the request plainly, account name and all but it never showed up in the Wazuh dashboard. I lost way too much time tracing this down before realizing the raw log was being ingested fine there just wasn't a rule mapped to correlate a pre-auth-disabled AS-REP request into something alertable. The data was there, the rule just wasn't. Whoops.
 
 ## 4. Kerberoasting
 
